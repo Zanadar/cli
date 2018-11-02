@@ -3,6 +3,7 @@ package container
 import (
 	"context"
 	"fmt"
+	"github.com/sirupsen/logrus"
 	"io"
 	"os"
 
@@ -74,6 +75,9 @@ func runCreate(dockerCli command.Cli, flags *pflag.FlagSet, opts *createOptions,
 }
 
 func pullImage(ctx context.Context, dockerCli command.Cli, image string, platform string, out io.Writer) error {
+
+	logrus.Infof(">>>>>>>>>>>>>>>> PullingImage: %s", image)
+
 	ref, err := reference.ParseNormalizedNamed(image)
 	if err != nil {
 		return err

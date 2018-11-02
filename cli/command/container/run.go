@@ -11,6 +11,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/docker/distribution/reference"
 	"github.com/docker/cli/cli"
 	"github.com/docker/cli/cli/command"
 	"github.com/docker/cli/opts"
@@ -114,6 +115,21 @@ func runRun(dockerCli command.Cli, flags *pflag.FlagSet, ropts *runOptions, copt
 		reportError(dockerCli.Err(), "run", err.Error(), true)
 		return cli.StatusError{StatusCode: 125}
 	}
+	// Get the image in question
+	// Pull it?
+	// Run after the pull
+	distributionRef, err := reference.ParseNormalizedNamed(copts.Image)
+	if err != nil {
+		reportError(dockerCli.Err(), "run", err.Error(), true)
+		return cli.StatusError{StatusCode: 125}
+	}
+	logrus.Infof(">>>>>>>>>>>>>>>> Will Pull image: %s", distributionRef)
+	ctx, cancelFun := context.WithCancel(context.Background())
+	defer cancelFun()
+	if err := pullImage(ctx, dockerCli, copts.Image, ropts.createOptions.platform, dockerCli.Out()); err != nil {
+		return err
+	}
+
 	return runContainer(dockerCli, ropts, copts, containerConfig)
 }
 
