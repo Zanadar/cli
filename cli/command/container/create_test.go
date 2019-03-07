@@ -150,6 +150,7 @@ func TestCreateContainerNeverPullsImage(t *testing.T) {
 			default:
 				return nil, errors.New("unexpected pull")
 			}
+
 		},
 		infoFunc: func() (types.Info, error) {
 			return types.Info{IndexServerAddress: "http://indexserver"}, nil
@@ -221,6 +222,84 @@ func TestCreateContainerAlwaysPullsImage(t *testing.T) {
 	assert.Check(t, is.Equal(responseCounter, pullCounter))
 }
 
+func TestCreateContainerImagePullPolicy(t *testing.T) {
+	imageName := "does-not-exist-locally"
+	containerID := "abcdef"
+	config := &containerConfig{
+		Config: &container.Config{
+			Image: imageName,
+		},
+		HostConfig: &container.HostConfig{},
+	}
+
+	cases := []struct {
+		PullPolicy     string
+		ExpectedPulls  int
+		ExpectedBody   container.ContainerCreateCreatedBody
+		ExpectedErrMsg string
+		ResponseCase   int
+	}{
+		{
+			PullPolicy:    PullImageMissing,
+			ExpectedPulls: 2,
+			ExpectedBody:  container.ContainerCreateCreatedBody{ID: containerID},
+		}, {
+			PullPolicy:    PullImageAlways,
+			ExpectedPulls: 1,
+			ExpectedBody:  container.ContainerCreateCreatedBody{ID: containerID},
+			ResponseCase:  1,
+		}, {
+			PullPolicy:     PullImageNever,
+			ExpectedPulls:  0,
+			ExpectedErrMsg: "error fake not found",
+		},
+	}
+	for _, c := range cases {
+		pullCounter := 0
+
+		client := &fakeClient{
+			createContainerFunc: func(
+				config *container.Config,
+				hostConfig *container.HostConfig,
+				networkingConfig *network.NetworkingConfig,
+				containerName string,
+			) (container.ContainerCreateCreatedBody, error) {
+				defer func() { c.ResponseCase++ }()
+				switch c.ResponseCase {
+				case 0:
+					return container.ContainerCreateCreatedBody{}, fakeNotFound{}
+				case 1:
+					return container.ContainerCreateCreatedBody{ID: containerID}, nil
+				default:
+					return container.ContainerCreateCreatedBody{ID: containerID}, nil
+				}
+			},
+			imageCreateFunc: func(parentReference string, options types.ImageCreateOptions) (io.ReadCloser, error) {
+				defer func() { pullCounter++ }()
+				return ioutil.NopCloser(strings.NewReader("")), nil
+			},
+			infoFunc: func() (types.Info, error) {
+				return types.Info{IndexServerAddress: "http://indexserver"}, nil
+			},
+		}
+		cli := test.NewFakeCli(client)
+		body, err := createContainer(context.Background(), cli, config, &createOptions{
+			name:      "name",
+			platform:  runtime.GOOS,
+			untrusted: true,
+			pull:      c.PullPolicy,
+		})
+
+		if c.ExpectedErrMsg != "" {
+			assert.ErrorContains(t, err, c.ExpectedErrMsg)
+		} else {
+			assert.NilError(t, err)
+			assert.Check(t, is.DeepEqual(c.ExpectedBody, *body))
+		}
+
+		assert.Check(t, is.Equal(c.ExpectedPulls, pullCounter))
+	}
+}
 func TestNewCreateCommandWithContentTrustErrors(t *testing.T) {
 	testCases := []struct {
 		name          string
